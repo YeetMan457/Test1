@@ -1,0 +1,218 @@
+using System;
+using System.Collections.Generic;
+using TMPro;
+using Unity.VisualScripting;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class Zone : MonoBehaviour
+{
+    public ZoneEnum zone;
+    public MapObject currentObject;
+    public SpriteScript mapObjectPrefab;
+    public SpriteScript currentMapObjectSprite;
+    public SpriteScript selection;
+    public MapUI MapUi;
+    private bool isHovering;
+    public Color hoverColour;
+    private void OnMouseDown()
+    {
+        if (currentObject == null)
+        {
+            CreateMapObject();
+        }
+
+        else 
+        {
+            if (GameManager.instance.CurrentMaterial != null)
+            {
+                CombineMapObjectWithMaterial();
+            }
+
+            else if (GameManager.instance.CurrentAction != null)
+            {
+                PerformActionOnMapObject();
+            }
+
+            else
+            {
+                MapUi.DisplayHistoryWindow(currentObject);
+            }
+        }
+    }
+
+    private void Update()
+    {
+
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+     
+        if ( Physics.Raycast(ray, out RaycastHit hit) && hit.collider.gameObject == gameObject)
+        {
+            if (!isHovering)
+            isHovering = true;
+            if (selection.image.color.a == 1)
+                selection.image.color = hoverColour;
+        }
+        else
+        {
+            if (isHovering)
+            {
+                isHovering = false;
+                if (selection.image.color.a == 1)
+                    selection.image.color = Color.white;
+            }
+                
+        }
+        
+
+
+    }
+
+    private void CreateMapObject()
+    {
+        if (GameManager.instance.CurrentMaterial != null)
+        {
+            if (MapObjectDatabase.instance.ZoneDictionary.TryGetValue((zone, GameManager.instance.CurrentMaterial.Name), out MapObject mapObject))
+                ChangeMapObject(mapObject);
+        }        
+    }
+
+    private void CombineMapObjectWithMaterial()
+    {
+        if (MapObjectDatabase.instance.CombinationDictionary.TryGetValue((GameManager.instance.CurrentMaterial.Name, currentObject.Name), out MapObject mapObject))
+           ChangeMapObject(mapObject);
+    }
+
+    private void PerformActionOnMapObject()
+    {
+        if (GameManager.instance.CurrentAction.Name == "Recycle")
+            RecycleMapObject(currentObject);
+        else if (MapObjectDatabase.instance.ActionsDictionary.TryGetValue((GameManager.instance.CurrentAction.Name, currentObject.Name), out List<MapObject> mapObjects))
+        {
+            foreach (MapObject mapObject in mapObjects)
+            {
+                if (mapObject.RequiredMapObject.Name == currentObject.Name)
+                {
+                    if (mapObject.HarvestedMaterial != null)
+                    {
+                        HarvestMapObject(mapObject);
+                        return;
+                    }
+                    else
+                    {
+                        if (mapObject.RequiredStoredMaterial != null && GameManager.instance.HasRequiredMatierals(mapObject))
+                        {
+                            GameManager.instance.ChangeStoredMaterialAmount(mapObject.RequiredStoredMaterial, mapObject.RequiredStoredMaterialAmount);
+                        }
+                        ChangeMapObject(mapObject);
+                        return;
+                    }
+                }             
+            }        
+        }      
+    }
+
+    private void RecycleMapObject(MapObject mapObject)
+    {
+        GameManager.instance.ChangeStoredMaterialAmount(mapObject.HarvestedMaterial, 1);
+        Destroy(currentMapObjectSprite.gameObject);
+        currentObject = null;
+        GameManager.instance.ResetCurrentAction();
+        UnHighlightObject();
+    }
+
+    private void HarvestMapObject(MapObject mapObject)
+    {
+        GameManager.instance.ChangeStoredMaterialAmount(mapObject.HarvestedMaterial, 1);
+        GameManager.instance.objectHistory.Push((currentObject, this));
+        Destroy(currentMapObjectSprite.gameObject);
+        currentObject = null;
+        GameManager.instance.ResetCurrentAction();
+        UnHighlightObject();
+    }
+    private void ChangeMapObject(MapObject mapObject)
+    {
+        if (mapObject != null)
+        {
+            if (currentObject == null)
+                currentMapObjectSprite = Instantiate(mapObjectPrefab, transform);
+
+            if (mapObject.image != null)
+            {
+                
+                currentMapObjectSprite.image.sprite = mapObject.image;
+            }
+            else
+            {
+                currentMapObjectSprite.image.sprite = null;
+            }
+            GameManager.instance.objectHistory.Push((currentObject, this));
+            currentObject = mapObject;
+            GameManager.instance.ResetCurrentAction();
+            UnHighlightObject();
+        }
+    }
+
+    public void Undo(MapObject mapObject)
+    {
+        if (mapObject == null)
+        {
+            Destroy(currentMapObjectSprite);
+            currentObject = null;
+        }
+        else
+        {
+            currentMapObjectSprite.image.sprite = mapObject.image;
+            currentObject = mapObject;
+
+        }
+       
+    }
+
+    internal void HighlightObject(Material material, Action action)
+    {
+        
+        if (material != null && currentObject == null)
+        {
+            selection.SetVisible(true);
+            selection.GetComponent<SpriteScript>().SetHighlight(true);
+            return;
+        }
+
+        if (currentObject != null)
+        {
+            currentMapObjectSprite.GetComponent<SpriteScript>().SetHighlight(false);
+            if (action != null && action.Name == "Recycle")
+            {
+                currentMapObjectSprite.GetComponent<SpriteScript>().SetHighlight(true);
+                selection.SetVisible(true);
+                selection.GetComponent<SpriteScript>().SetHighlight(true);                
+                return;
+            }
+
+            
+            if (material != null && MapObjectDatabase.instance.CombinationDictionary.TryGetValue((GameManager.instance.CurrentMaterial.Name, currentObject.Name), out MapObject mapObject))
+            {
+                currentMapObjectSprite.GetComponent<SpriteScript>().SetHighlight(true);
+                selection.SetVisible(true);
+                selection.GetComponent<SpriteScript>().SetHighlight(true);
+                
+            }
+            else if (action != null && MapObjectDatabase.instance.ActionsDictionary.TryGetValue((GameManager.instance.CurrentAction.Name, currentObject.Name), out List<MapObject> mapObjects))
+            {
+                currentMapObjectSprite.GetComponent<SpriteScript>().SetHighlight(true);
+                selection.SetVisible(true);
+                selection.GetComponent<SpriteScript>().SetHighlight(true);
+                
+            }
+        }                  
+    }
+
+    public void UnHighlightObject()
+    {
+        selection.GetComponent<SpriteScript>().SetHighlight(false);
+        selection.SetVisible(false);
+        if (currentObject != null)
+            currentMapObjectSprite.GetComponent<SpriteScript>().SetHighlight(false);           
+    }
+}
